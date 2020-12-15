@@ -13,12 +13,14 @@ Team Members:
 # Imports
 import os
 from string import ascii_letters, whitespace
+from parserError import ScannerError
 
 # Define Global Data
 digits = set(str(i) for i in range(10))
 letters = set(ascii_letters)
 whitespace = set(whitespace)
 special_symbols = {'+', '-', '*', '/', '=', '<', '>', '(', ')', ';'}
+reserved_words = ['if', 'then', 'else', 'end', 'repeat', 'until', 'read', 'write']
 
 tiny_tokens = {
 	'if'	: 'IF',
@@ -30,20 +32,20 @@ tiny_tokens = {
 	'read'	: 'READ',
 	'write'	: 'WRITE',
 
-	'+'		: 'ADD',
-	'-'		: 'SUB',
-	'*'		: 'MUL',
+	'+'		: 'PLUS',
+	'-'		: 'MINUS',
+	'*'		: 'MULT',
 	'/'		: 'DIV',
-	'='		: 'EQ',
-	'<'		: 'LT',
-	'>'		: 'GT',
-	'('		: 'LBRACKET',
-	')'		: 'RBRACKET',
-	';'		: 'SEMI',
+	'='		: 'EQUAL',
+	'<'		: 'LESSTHAN',
+	'>'		: 'GREATERTHAN',
+	'('		: 'OPENBRACKET',
+	')'		: 'CLOSEDBRACKET',
+	';'		: 'SEMICOLON',
 	':='	: 'ASSIGN',
 
-	'num'	: 'NUM',
-	'id'	: 'ID'
+	'num'	: 'NUMBER',
+	'id'	: 'IDENTIFIER'
 }
 
 
@@ -61,9 +63,12 @@ def scan_file(input_filename, output_filename):
 				# if EOF: end program
 				if not char:
 					if current_token_type in tiny_tokens.keys():
+						if current_token_text in reserved_words:
+							current_token_type = current_token_text
+
 						output_string = '{},{}'.format(current_token_text, tiny_tokens[current_token_type])
 						output_file.write(output_string + '\n')
-						# print(output_string)
+						print('final: ', current_token_text, tiny_tokens[current_token_type])
 						state = 'start'
 						current_token_text = ''
 						current_token_type = ''
@@ -96,8 +101,7 @@ def scan_file(input_filename, output_filename):
 					elif char in whitespace:
 						continue
 					else:
-						print('Error: Unknown Character', char)
-						break
+						raise ScannerError('Unknown Character: ' + char)
 
 				elif state == 'in_comment':
 					if char == '}':
@@ -145,8 +149,7 @@ def scan_file(input_filename, output_filename):
 							input_file.seek(-1, os.SEEK_CUR)
 							state = 'done'
 					else:
-						print('Error: Unknown Number State', current_num_state)
-						break
+						raise ScannerError('Unknown Number State: ' + current_num_state)
 
 				elif state == 'in_id':
 					if char in letters or char in digits or char == '_':
@@ -164,26 +167,23 @@ def scan_file(input_filename, output_filename):
 						current_token_text = ':='
 						current_token_type = ':='
 					else:
-						print('Error: Unknown Operator :', char, sep='')
-						break
+						raise ScannerError('Unkown Operator: ' + char)
 
 				else:
-					print('Error: Unknown State', state)
-					break
+					raise ScannerError('Unkown State: ' + char)
 
 				# if we finished a Token
 				if state == 'done':
 					if current_token_type in tiny_tokens.keys():
 						output_string = '{},{}'.format(current_token_text, tiny_tokens[current_token_type])
 						output_file.write(output_string + '\n')
-						# print(output_string)
+						print('middle:', current_token_text, tiny_tokens[current_token_type])
 						state = 'start'
 						current_token_text = ''
 						current_token_type = ''
 						current_num_state  = ''
 					else:
-						print('Error: Unknown Token Type', current_token_type)
-						break
+						raise ScannerError('Unkown Token Type: ' + char)
 
 
 

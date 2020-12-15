@@ -12,6 +12,7 @@ Team Members:
 
 from tiny_scanner import scan_file
 from tiny_parser import Parser
+from parserError import MatchingError
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -161,7 +162,15 @@ class Ui_MainWindow(object):
 
     def compileFromFile(self):
         input_filename = QtWidgets.QFileDialog.getOpenFileName(None, 'Select Code File')
-        self._compile(input_filename[0])
+        if input_filename[0][-4:] == '.txt':
+            self._compile(input_filename[0])
+        else:
+            msg = QtWidgets.QMessageBox()
+            msg.setIcon(QtWidgets.QMessageBox.Critical)
+            msg.setText("Error")
+            msg.setInformativeText('Please select a ".txt" file')
+            msg.setWindowTitle("Error")
+            msg.exec_()
 
     def _compile(self, input_filename='data/current_code.txt'):
         scan_file(input_filename, 'data/token_list.txt')
@@ -171,9 +180,18 @@ class Ui_MainWindow(object):
 
         if self.ShowParseTreeChkBox.isChecked() or self.ShowSyntaxTreeChkBox.isChecked():
             parser = Parser('data/token_list.txt')
-            parser.parse_tokens()
-            parser.show(self.ShowParseTreeChkBox.isChecked(), self.ShowSyntaxTreeChkBox.isChecked())
-            parser.save()
+            try:
+                parser.parse_tokens()
+            except Exception as err:
+                msg = QtWidgets.QMessageBox()
+                msg.setIcon(QtWidgets.QMessageBox.Critical)
+                msg.setText("Error")
+                msg.setInformativeText(str(err))
+                msg.setWindowTitle("Error")
+                msg.exec_()
+            else:
+                parser.show(self.ShowParseTreeChkBox.isChecked(), self.ShowSyntaxTreeChkBox.isChecked())
+                parser.save()
 
 
 if __name__ == "__main__":

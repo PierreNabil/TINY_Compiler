@@ -12,7 +12,7 @@ Team Members:
 
 # Imports
 import ete3
-from parserError import MatchingError
+from parserError import MatchingError, MissingTokenError
 
 
 # Reader Class
@@ -21,24 +21,25 @@ class TokenReader:
 		self.file = open(filename, 'r')
 		self.last_token = None
 
-	def _gettoken(self):
+	def _gettoken(self, expected_token):
 		line = self.file.readline()
 		if line:
 			return line.rstrip().split(',')
 		else:
-			raise EOFError('Reached EOF.')
+			raise MissingTokenError(expected_token)
 
-	def peek(self):
+	def _peek(self, expected_token):
 		if self.last_token is None:
-			next_token_text, next_token_type = self._gettoken()
+			next_token_text, next_token_type = self._gettoken(expected_token)
 			self.last_token = next_token_text, next_token_type
 		return self.last_token
 
 	def match(self, token_type):
+		self._peek(token_type)
 		if self.last_token is not None:
 			next_token_text, next_token_type = self.last_token
 		else:
-			next_token_text, next_token_type = self._gettoken()
+			next_token_text, next_token_type = self._gettoken(token_type)
 		if next_token_type != token_type:
 			raise MatchingError(token_type, next_token_type)
 		else:
@@ -46,8 +47,7 @@ class TokenReader:
 		return next_token_text, next_token_type
 
 	def match_any(self, token_type_list):
-		if self.last_token is None:
-			self.peek()
+		self._peek(token_type_list)
 		any_match = False
 		next_token_text, next_token_type = self.last_token
 		for token_type in token_type_list:
@@ -66,7 +66,7 @@ class TokenReader:
 
 
 class Parser:
-	def __init__(self, filename='data/token_list.txt'):
+	def __init__(self, filename):
 		self.reader = TokenReader(filename)
 
 		self.last_inner_tree = '', ''
@@ -148,34 +148,17 @@ class Parser:
 		# stmt_seq = stmt {; stmt}
 		# Doesn't Appear in Syntax Tree IF only one stmt
 		only_stmt = True
-		try:
-			first_tree = self._stmt()
-		except EOFError:
-			return '', ''
+		first_tree = self._stmt()
 		inner_tree = [first_tree[0], '']
 		while True:
 			try:
-				self.reader.peek()
-				self.reader.match('SEMI')
-			except MatchingError:
+				self.reader.match('SEMICOLON')
+			except (MatchingError, MissingTokenError):
 				break
-			except EOFError as err:
-				if root:
-					print(err.args[0])
-					break
-				else:
-					raise err
-			only_stmt = False
-			try:
-				inner_p, inner_s = self._stmt()
-				inner_tree[0] = '(' + inner_tree[0] + ')stmt_seq,SEMI,' + inner_p
-				inner_tree[1] += ',' + inner_s
-			except EOFError as err:
-				if root:
-					print(err.args[0])
-					break
-				else:
-					raise err
+			only_stmt = False	
+			inner_p, inner_s = self._stmt()
+			inner_tree[0] = '(' + inner_tree[0] + ')stmt_seq,SEMICOLON,' + inner_p
+			inner_tree[1] += ',' + inner_s
 
 		if only_stmt:
 			s_str = first_tree[1]
@@ -188,45 +171,36 @@ class Parser:
 	def _stmt(self):
 		# stmt = if_stmt | repeat_stmt | read_stmt | write_stmt | assign_stmt
 		# Doesn't appear in Syntax Tree
-		try:
-			self.reader.peek()
+		next_token_text, next_token_type = self.reader.match_any(['IF', 'REPEAT', 'READ', 'WRITE', 'IDENTIFIER'])
+		if next_token_type == 'IF':
 			p_str, s_str = self._if_stmt()
-		except MatchingError:
-			try:
-				p_str, s_str = self._repeat_stmt()
-			except MatchingError:
-				try:
-					p_str, s_str = self._read_stmt()
-				except MatchingError:
-					try:
-						p_str, s_str = self._write_stmt()
-					except MatchingError:
-						try:
-							p_str, s_str = self._assign_stmt()
-						except MatchingError as err:
-							next_token_type = err.found_token
-							raise MatchingError(['IF', 'REPEAT', 'READ', 'WRITE', 'ID'], next_token_type)
+		elif next_token_type == 'REPEAT':
+			p_str, s_str = self._repeat_stmt()
+		elif next_token_type == 'READ':
+			p_str, s_str = self._read_stmt()
+		elif next_token_type == 'WRITE':
+			p_str, s_str = self._write_stmt()
+		elif next_token_type == 'IDENTIFIER':
+			p_str, s_str = self._assign_stmt(next_token_text)
+		
 		p_str = '(' + p_str + ')stmt'
 		return p_str, s_str
 
 	def _if_stmt(self):
 		# if_stmt = if exp then stmt_seq [else stmt_seq] end
-		self.reader.match('IF')
 		cond_str = self._exp()
 		self.reader.match('THEN')
 		then_str = self._stmt_seq()
 		s_str = cond_str[1] + ',' + then_str[1]
 		p_str = 'IF"if",' + cond_str[0] + ',THEN"then",' + then_str[0]
-		try:
-			self.reader.peek()
-			self.reader.match('ELSE')
-		except MatchingError:
-			pass
-		else:
+		
+		next_token_text, next_token_type = self.reader.match_any(['ELSE', 'END'])
+		
+		if next_token_type == 'ELSE':
 			else_str = self._stmt_seq()
 			s_str += ',' + else_str[1]
 			p_str += ',ELSE"else",' + else_str[0]
-		self.reader.match('END')
+			self.reader.match('END')
 
 		s_str = '(' + s_str + ')if_stmt'
 		p_str = '(' + p_str + ',END"end")if_stmt'
@@ -234,7 +208,6 @@ class Parser:
 
 	def _repeat_stmt(self):
 		# repeat_stmt = repeat stmt_seq until exp
-		self.reader.match('REPEAT')
 		repeat_str = self._stmt_seq()
 		self.reader.match('UNTIL')
 		cond_str = self._exp()
@@ -245,26 +218,23 @@ class Parser:
 
 	def _read_stmt(self):
 		# read_stmt = read id
-		self.reader.match('READ')
-		next_token_text, next_token_type = self.reader.match('ID')
+		next_token_text, next_token_type = self.reader.match('IDENTIFIER')
 
-		s_str = '(ID"' + next_token_text + '")read_stmt'
-		p_str = '(READ"read",ID"' + next_token_text + '")read_stmt'
+		s_str = '(IDENTIFIER"' + next_token_text + '")read_stmt'
+		p_str = '(READ"read",IDENTIFIER"' + next_token_text + '")read_stmt'
 		return p_str, s_str
 
 	def _write_stmt(self):
 		# write_stmt = write exp
-		self.reader.match('WRITE')
 		exp = self._exp()
 
 		s_str = '(' + exp[1] + ')write_stmt'
 		p_str = '(WRITE"write",' + exp[0] + ')write_stmt'
 		return p_str, s_str
 
-	def _assign_stmt(self):
+	def _assign_stmt(self, next_token_text):
 		# assign_stmt = id:= exp
-		next_token_text, next_token_type = self.reader.match('ID')
-		id_str = 'ID"' + next_token_text + '"'
+		id_str = 'IDENTIFIER"' + next_token_text + '"'
 
 		self.reader.match('ASSIGN')
 		exp_str = self._exp()
@@ -280,11 +250,8 @@ class Parser:
 		first_tree = self._simple_exp()
 		second_tree = ''
 		try:
-			self.reader.peek()
 			next_token_text, next_token_type = self._comp_op()
-		except MatchingError:
-			pass
-		except EOFError:
+		except (MatchingError, MissingTokenError):
 			pass
 		else:
 			only_stmt = False
@@ -307,11 +274,8 @@ class Parser:
 		inner_tree = [first_tree[0], '']
 		while True:
 			try:
-				self.reader.peek()
 				next_token_text, next_token_type = self._add_op()
-			except MatchingError:
-				break
-			except EOFError:
+			except (MatchingError, MissingTokenError):
 				break
 			else:
 				only_stmt = False
@@ -335,11 +299,8 @@ class Parser:
 		inner_tree = [first_tree[0], '']
 		while True:
 			try:
-				self.reader.peek()
 				next_token_text, next_token_type = self._mul_op()
-			except MatchingError:
-				break
-			except EOFError:
+			except (MatchingError, MissingTokenError):
 				break
 			else:
 				only_stmt = False
@@ -358,37 +319,36 @@ class Parser:
 	def _factor(self):
 		# factor = ( exp ) | num | id
 		# Doesn't Appear in Syntax Tree IF ( exp )
-		self.reader.peek()
-		matched_token_text, matched_token_type = self.reader.match_any(['LBRACKET', 'NUM', 'ID'])
-		if matched_token_type == 'LBRACKET':
+		matched_token_text, matched_token_type = self.reader.match_any(['OPENBRACKET', 'NUMBER', 'IDENTIFIER'])
+		if matched_token_type == 'OPENBRACKET':
 			exp = self._exp()
 			s_str = exp[1]
-			p_str = '(LBRACKET,' + exp[0] + ',RBRACKET)factor'
-			self.reader.match('RBRACKET')
-		elif matched_token_type == 'ID':
-			s_str = 'ID"' + matched_token_text + '"'
+			p_str = '(OPENBRACKET,' + exp[0] + ',CLOSEDBRACKET)factor'
+			self.reader.match('CLOSEDBRACKET')
+		elif matched_token_type == 'IDENTIFIER':
+			s_str = 'IDENTIFIER"' + matched_token_text + '"'
 			p_str = '(' + s_str + ')factor'
-		else: #for NUM
-			s_str = 'NUM"' + matched_token_text + '"'
+		else: #for NUMBER
+			s_str = 'NUMBER"' + matched_token_text + '"'
 			p_str = '(' + s_str + ')factor'
 
 		return p_str, s_str
 
 	def _comp_op(self):
 		# comp_op = < | > | =
-		return self.reader.match_any(['LT', 'GT', 'EQ'])
+		return self.reader.match_any(['LESSTHAN', 'GREATERTHAN', 'EQUAL'])
 
 	def _add_op(self):
 		# add_op = + | -
-		return self.reader.match_any(['ADD', 'SUB'])
+		return self.reader.match_any(['PLUS', 'MINUS'])
 
 	def _mul_op(self):
 		# mul_op = * | /
-		return self.reader.match_any(['MUL', 'DIV'])
+		return self.reader.match_any(['MULT', 'DIV'])
 
 
 if __name__ == '__main__':
-	parser = Parser()
+	parser = Parser('data/token_list.txt')
 	parser.parse_tokens(True)
 	parser.show()
 	parser.save()
