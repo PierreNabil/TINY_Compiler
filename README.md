@@ -1,5 +1,6 @@
 # TINY_Compiler
 Scanner and Parser for the TINY Programming Language.
+
 4th year 1st term Compilers Project.
 
 ## Description
