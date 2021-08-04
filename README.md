@@ -1,5 +1,6 @@
-# 4th_CSE_Compilers_Project
+# TINY_Compiler
 Scanner and Parser for the TINY Programming Language.
+4th year 1st term Compilers Project.
 
 ## Description
 In this project, we draw the Syntax Tree and/or Parse Tree of any TINY language code.
